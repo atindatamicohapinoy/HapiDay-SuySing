@@ -16,8 +16,8 @@ st.title("🧾 Suy Sing Sales Invoice Scanner - Gemini AI")
 GEMINI_API_KEY = st.secrets["GEMINI_API_KEY"] if "GEMINI_API_KEY" in st.secrets else os.getenv("GEMINI_API_KEY")
 genai.configure(api_key=GEMINI_API_KEY)
 
-# Google Sheets setup
-SHEET_ID = "1vPKJPbIzvq3rTbIPKv4XivNtB941u9J_MH6TEmdcc10"
+# Updated Google Sheets setup para sa HapiDay Sheet
+SHEET_ID = "1LOnYf1REHRVimyNWU6se2LkiYjoTMLMKAjQx1oDjcYc"
 
 def get_gsheet_client():
     """Connect to Google Sheets using service account"""
@@ -74,7 +74,7 @@ def extract_table_gemini(uploaded_file):
     
     # Check file type
     if uploaded_file.type == "application/pdf":
-        # Extract PDF content using Gemini API inline data / pdf bytes or text extraction
+        # Extract PDF content using Gemini API inline data / pdf bytes
         pdf_bytes = uploaded_file.read()
         
         # Pass PDF directly to Gemini API
@@ -166,7 +166,7 @@ if st.session_state.df is not None:
                         sheet.append_row(st.session_state.df.columns.tolist())
                     
                     sheet.append_rows(rows, value_input_option='USER_ENTERED')
-                    st.success(f"✅ {len(rows)} rows synced sa Google Sheets!")
+                    st.success(f"✅ {len(rows)} rows synced sa HapiDay Google Sheet!")
                     st.balloons()
                     
             except Exception as e:
