@@ -16,7 +16,7 @@ st.title("🧾 Suy Sing Sales Invoice Scanner - Gemini AI")
 GEMINI_API_KEY = st.secrets["GEMINI_API_KEY"] if "GEMINI_API_KEY" in st.secrets else os.getenv("GEMINI_API_KEY")
 genai.configure(api_key=GEMINI_API_KEY)
 
-# Updated Google Sheets setup para sa HapiDay Sheet
+# Google Sheets setup
 SHEET_ID = "1LOnYf1REHRVimyNWU6se2LkiYjoTMLMKAjQx1oDjcYc"
 
 def get_gsheet_client():
@@ -36,27 +36,44 @@ def safe_generate_content(model_name, contents, prompt):
 
 def extract_table_gemini(uploaded_file):
     prompt = """
-    Extract all table items/line items from this Suy Sing Sales Invoice receipt into a JSON list.
+    Extract all information from this Suy Sing Sales Invoice receipt into a JSON list.
     
-    Extract each column accurately as shown in the invoice headers:
+    For EVERY line item/row in the item table, include the Invoice Header details as metadata fields in each row object.
+    
+    Extract the following fields for EVERY row:
+    - "INVOICE NO": Sales Invoice No. (e.g., 104002114944)
+    - "PAGE": Page number info (e.g., 1 of 1)
+    - "SOLD TO": Customer Name (e.g., MARK JOAQUIN RUIZ)
+    - "CUST #": Customer ID (e.g., MARKR43)
+    - "INV DATE": Invoice Date (e.g., 07/06/2026)
+    - "ORD DATE": Order Date (e.g., 07/06/2026)
+    - "PO #": PO Number (e.g., 3205950)
     - "QTY": Quantity (integer or float)
-    - "UOM": Unit of Measure (e.g., PCK, CTN, etc.)
-    - "CODE": Product item code (e.g., CLO69Y, CHO06Y)
+    - "UOM": Unit of Measure (e.g., PCK, CTN)
+    - "CODE": Product item code (e.g., CLO69Y)
     - "DESCRIPTION": Full item description
     - "BCODE": Barcode number (e.g., 043901)
     - "AREA": Storage/location code (e.g., 2YD010)
     - "U. PRICE": Unit price
-    - "PRICE": Line price before taxes or multiplier
+    - "PRICE": Line price
     - "AMOUNT": Total amount for the line item
     
     Rules:
-    1. Parse every row under the line items table section.
-    2. Keep numerical values as strings or standard numbers.
-    3. Return ONLY a valid JSON array of objects. Do not include markdown formatting outside ```json.
+    1. Repeat the Header fields ("INVOICE NO", "PAGE", "SOLD TO", "CUST #", "INV DATE", "ORD DATE", "PO #") across EVERY row object so each line item has its invoice metadata.
+    2. Parse every row under the line items table section.
+    3. Keep numerical values as strings or standard numbers.
+    4. Return ONLY a valid JSON array of objects. Do not include markdown formatting outside ```json.
     
     Example output structure:
     [
       {
+        "INVOICE NO": "104002114944",
+        "PAGE": "1 of 1",
+        "SOLD TO": "MARK JOAQUIN RUIZ",
+        "CUST #": "MARKR43",
+        "INV DATE": "07/06/2026",
+        "ORD DATE": "07/06/2026",
+        "PO #": "3205950",
         "QTY": "1",
         "UOM": "PCK",
         "CODE": "CLO69Y",
@@ -74,10 +91,7 @@ def extract_table_gemini(uploaded_file):
     
     # Check file type
     if uploaded_file.type == "application/pdf":
-        # Extract PDF content using Gemini API inline data / pdf bytes
         pdf_bytes = uploaded_file.read()
-        
-        # Pass PDF directly to Gemini API
         contents.append({
             "mime_type": "application/pdf",
             "data": pdf_bytes
@@ -104,7 +118,6 @@ def extract_table_gemini(uploaded_file):
 if 'df' not in st.session_state:
     st.session_state.df = None
 
-# Binago para mag-accept ng PDF, PNG, JPG, JPEG
 uploaded_file = st.file_uploader("Upload Suy Sing Invoice (PDF, PNG, JPG, JPEG)", type=['pdf', 'png', 'jpg', 'jpeg'])
 
 if uploaded_file:
@@ -115,12 +128,12 @@ if uploaded_file:
         st.image(image, caption="Ready to scan", use_column_width=True)
     
     if st.button("🔍 Run AI Scan", type="primary"):
-        with st.spinner('Gemini AI is reading invoice data... ~3-5 seconds'):
+        with st.spinner('Gemini AI is reading invoice headers & item data... ~3-5 seconds'):
             try:
                 table_data = extract_table_gemini(uploaded_file)
                 
                 if table_data:
-                    st.success(f"✅ Extracted {len(table_data)} rows!")
+                    st.success(f"✅ Extracted {len(table_data)} rows with Header Details!")
                     st.session_state.df = pd.DataFrame(table_data)
                 else:
                     st.warning("Walang na-detect na data. Try mo mas malinaw na file.")
@@ -166,7 +179,7 @@ if st.session_state.df is not None:
                         sheet.append_row(st.session_state.df.columns.tolist())
                     
                     sheet.append_rows(rows, value_input_option='USER_ENTERED')
-                    st.success(f"✅ {len(rows)} rows synced sa HapiDay Google Sheet!")
+                    st.success(f"✅ {len(rows)} rows synced sa Google Sheets!")
                     st.balloons()
                     
             except Exception as e:
