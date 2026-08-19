@@ -194,14 +194,27 @@ if st.session_state.df is not None:
                     client = get_gsheet_client()
                     sheet = client.open_by_key(SHEET_ID).sheet1
                     
-                    rows = st.session_state.df.values.tolist()
+                    # Clean NaN/None values
+                    df_clean = st.session_state.df.fillna("")
+                    rows = df_clean.values.tolist()
                     
-                    # Add headers if sheet is empty
-                    if len(sheet.get_all_values()) == 0:
-                        sheet.append_row(st.session_state.df.columns.tolist())
+                    # Check Column A length to determine next row
+                    col_a_values = sheet.col_values(1)
                     
-                    sheet.append_rows(rows, value_input_option='USER_ENTERED')
-                    st.success(f"✅ {len(rows)} rows synced sa Google Sheets!")
+                    if len(col_a_values) == 0:
+                        # If empty sheet, include column headers
+                        data_to_send = [df_clean.columns.tolist()] + rows
+                        next_row = 1
+                    else:
+                        # Append directly after last populated row in Column A
+                        data_to_send = rows
+                        next_row = len(col_a_values) + 1
+                    
+                    # Update starting strictly from Column A
+                    range_to_update = f"A{next_row}"
+                    sheet.update(range_to_update, data_to_send, value_input_option='USER_ENTERED')
+                    
+                    st.success(f"✅ {len(rows)} rows synced starting at Column A (Row {next_row})!")
                     st.balloons()
                     
             except Exception as e:
