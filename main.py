@@ -3,6 +3,7 @@ import pandas as pd
 import google.generativeai as genai
 import json
 import os
+import re
 from PIL import Image
 import gspread
 from google.oauth2.service_account import Credentials
@@ -27,8 +28,44 @@ def get_gsheet_client():
     client = gspread.authorize(creds)
     return client
 
+# JSON Schema definition to enforce perfectly structured JSON from Gemini
+INVOICE_SCHEMA = {
+    "type": "ARRAY",
+    "items": {
+        "type": "OBJECT",
+        "properties": {
+            "INVOICE NO": {"type": "STRING"},
+            "PAGE": {"type": "STRING"},
+            "SOLD TO": {"type": "STRING"},
+            "CUST #": {"type": "STRING"},
+            "INV DATE": {"type": "STRING"},
+            "ORD DATE": {"type": "STRING"},
+            "PO #": {"type": "STRING"},
+            "QTY": {"type": "STRING"},
+            "UOM": {"type": "STRING"},
+            "CODE": {"type": "STRING"},
+            "DESCRIPTION": {"type": "STRING"},
+            "BCODE": {"type": "STRING"},
+            "AREA": {"type": "STRING"},
+            "U. PRICE": {"type": "STRING"},
+            "PRICE": {"type": "STRING"},
+            "AMOUNT": {"type": "STRING"}
+        },
+        "required": [
+            "INVOICE NO", "PAGE", "SOLD TO", "CUST #", "INV DATE", "ORD DATE", 
+            "PO #", "QTY", "UOM", "CODE", "DESCRIPTION", "BCODE", "AREA", 
+            "U. PRICE", "PRICE", "AMOUNT"
+        ]
+    }
+}
+
 def safe_generate_content(model_name, contents, prompt):
-    model = genai.GenerativeModel(model_name)
+    # Configure generation parameters to force structured JSON output
+    generation_config = genai.GenerationConfig(
+        response_mime_type="application/json",
+        response_schema=INVOICE_SCHEMA
+    )
+    model = genai.GenerativeModel(model_name, generation_config=generation_config)
     response = model.generate_content([prompt] + contents)
     return response
 
@@ -46,7 +83,7 @@ def extract_table_gemini(uploaded_file):
     - "INV DATE": Invoice Date (e.g., 07/06/2026)
     - "ORD DATE": Order Date (e.g., 07/06/2026)
     - "PO #": PO Number (e.g., 3205950)
-    - "QTY": Quantity (integer or float)
+    - "QTY": Quantity
     - "UOM": Unit of Measure (e.g., PCK, CTN)
     - "CODE": Product item code (e.g., CLO69Y)
     - "DESCRIPTION": Full item description
@@ -59,13 +96,12 @@ def extract_table_gemini(uploaded_file):
     Rules:
     1. Repeat the Header fields ("INVOICE NO", "PAGE", "SOLD TO", "CUST #", "INV DATE", "ORD DATE", "PO #") across EVERY row object so each line item has its invoice metadata.
     2. Parse every row under the line items table section.
-    3. Keep numerical values as strings or standard numbers.
-    4. Return ONLY a valid JSON array of objects. Do not include markdown formatting outside ```json.
+    3. Return ONLY a valid JSON array of objects matching the schema.
     """
     
     contents = []
     
-    # Reset file position pointer to 0 just in case
+    # Reset file position pointer to 0
     uploaded_file.seek(0)
     
     # Check file type
@@ -85,12 +121,15 @@ def extract_table_gemini(uploaded_file):
     except Exception:
         response = safe_generate_content("gemini-2.5-flash-lite", contents, prompt)
 
-    json_text = response.text.strip()
-    if json_text.startswith("```json"):
-        json_text = json_text.replace("```json", "").replace("```", "").strip()
-    elif json_text.startswith("```"):
-        json_text = json_text.replace("```", "").strip()
-    
+    raw_text = response.text.strip()
+
+    # Clean out markdown code blocks if present
+    json_match = re.search(r'\[.*\]', raw_text, re.DOTALL)
+    if json_match:
+        json_text = json_match.group(0)
+    else:
+        json_text = raw_text
+
     return json.loads(json_text)
 
 # Initialize session state
@@ -103,7 +142,6 @@ if uploaded_file:
     if uploaded_file.type == "application/pdf":
         st.info("📄 PDF file uploaded. Ready to scan!")
     else:
-        # Use try-except for image display & updated parameter for newer streamlit
         try:
             uploaded_file.seek(0)
             image = Image.open(uploaded_file)
@@ -123,9 +161,9 @@ if uploaded_file:
                     st.warning("Walang na-detect na data. Try mo mas malinaw na file.")
                     
             except Exception as e:
-                st.error(f"Error: {str(e)}")
+                st.error(f"Error parsing JSON: {str(e)}")
 
-# Show editor + buttons kung may data na
+# Show editor + buttons if data exists
 if st.session_state.df is not None:
     st.subheader("📋 Verify Data - Edit mo kung may mali")
     edited_df = st.data_editor(
@@ -158,7 +196,7 @@ if st.session_state.df is not None:
                     
                     rows = st.session_state.df.values.tolist()
                     
-                    # Add headers kung empty pa yung sheet
+                    # Add headers if sheet is empty
                     if len(sheet.get_all_values()) == 0:
                         sheet.append_row(st.session_state.df.columns.tolist())
                     
